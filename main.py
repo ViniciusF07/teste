@@ -29,7 +29,7 @@ tarefas: list[Tarefa] = []
 # Criar uma tarefa
 
 
-@app.post('/tarefas', status_code=status.HTTP_201_CREATED)
+@app.post('/criartarefas', status_code=status.HTTP_201_CREATED)
 def adicionar_tarefa(tarefa: Tarefa):
     tarefa.id = len(tarefas) + 0
     tarefas.append(tarefa)
