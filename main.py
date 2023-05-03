@@ -1,179 +1,188 @@
+from fastapi.encoders import jsonable_encoder
 from fastapi import FastAPI, HTTPException, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from pymongo.mongo_client import MongoClient
+from bson import ObjectId
+from dotenv import load_dotenv
+import os
 
 app = FastAPI()
+load_dotenv()
+uri = os.getenv("uri")
+# Configuração da conexão com o MongoDB
+client = MongoClient(uri)
+db = client["tarefasbd"]
+collection = db["tarefas"]
 
-origins = ['http://localhost:5500', 'http://127.0.0.1:5500']
+origins = ["http://localhost:5500", "http://127.0.0.1:5500"]
 
-app.add_middleware(CORSMiddleware,
-                   allow_origins=origins,
-                   allow_credentials=True,
-                   allow_methods=['*'],
-                   allow_headers=['*'])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Classe modelo para a tarefa
 
 
 class Tarefa(BaseModel):
-    id: int | None
+
     descricao: str
     responsavel: str | None
     nivel: int
-    situacao: str | None = 'Novo'
+    situacao: str | None = "Novo"
     prioridade: int
-
-# a) Adicionar listar, remover, detalhes
-
-
-tarefas: list[Tarefa] = []
 
 # Criar uma tarefa
 
 
-@app.post('/criartarefas', status_code=status.HTTP_201_CREATED)
+@app.post("/criar", status_code=status.HTTP_201_CREATED)
 def adicionar_tarefa(tarefa: Tarefa):
-    tarefa.id = len(tarefas) + 0
-    tarefas.append(tarefa)
-    return tarefa
+    tarefa_dict = tarefa.dict()
+    inserted_tarefa = collection.insert_one(tarefa_dict)
+    tarefa_dict["_id"] = str(inserted_tarefa.inserted_id)
+    return tarefa_dict
+
 
 # Listar todas as tarefas
 
 
-@app.get('/tarefas')
+@app.get("/tarefas")
 def listar_tarefas():
+    tarefas = []
+    for tarefa in collection.find():
+        tarefa["_id"] = str(tarefa["_id"])
+        tarefas.append(tarefa)
     return tarefas
-
-# Deletar tarefa através do ID
-
-
-@app.delete('/tarefas/{tarefa_id}', status_code=status.HTTP_204_NO_CONTENT)
-def remover_tarefa(tarefa_id: int):
-    for tarefa_marcada in tarefas:
-        if tarefa_marcada.id == tarefa_id:
-            tarefas.remove(tarefa_marcada)
-            return {"Tarefa excluída"}
-
-    raise HTTPException(status.HTTP_404_NOT_FOUND,
-                        detail=f'Tarefa de ID {tarefa_id} não encontrada')
 
 # Obter tarefa através do ID
 
 
-@app.get('/tarefas/{tarefa_id}')
-def obter_tarefa(tarefa_id: int):
-    for tarefa_selecionada in tarefas:
-        if tarefa_selecionada.id == tarefa_id:
-            return tarefas[tarefa_id]
-
+@app.get("/tarefas/{tarefa_id}")
+def obter_tarefa(tarefa_id: str):
+    tarefa = collection.find_one({"_id": ObjectId(tarefa_id)})
+    if tarefa:
+        tarefa["_id"] = str(tarefa["_id"])
+        return tarefa
     raise HTTPException(status.HTTP_404_NOT_FOUND,
-                        detail=f'Tarefa de ID {tarefa_id} não encontrada')
+                        detail=f"Tarefa de ID {tarefa_id} não encontrada")
+
+# Deletar tarefa através do ID
 
 
-# B,C,D = implementar um modelo de update - PUT para atualizar a situação da tarefa;
+@app.delete("/tarefas/{tarefa_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remover_tarefa(tarefa_id: str):
+    delete_result = collection.delete_one({"_id": ObjectId(tarefa_id)})
+    if delete_result.deleted_count == 1:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    raise HTTPException(status.HTTP_404_NOT_FOUND,
+                        detail=f"Tarefa de ID {tarefa_id} não encontrada")
 
-'''Diagrama de Estados:
-1) NOVA --> Ao criar Tarefa
-2) EM ANDAMENTO vem de NOVA ou de PENDENTE
-3) PENDENTE vem de NOVA ou de EM ANDAMENTO
-4) CANCELADA por vir de qualquer Situação
-5) RESOLVIDA vem de EM ANDAMENTO'''
 
 # Atualizar a tarefa - estado = Em andamento
 
 
-@app.put('/tarefas/atualizar/situacao/andamento/{tarefa_id}')
-def atualizar_tarefa(tarefa_id: int):
-    for index in range(len(tarefas)):
-        tarefa_atual = tarefas[index]
-        if tarefa_atual.id == tarefa_id:
-            tarefa_id = tarefa_atual.id
-            if tarefa_atual.situacao == 'Nova' or 'Pendente':
-                tarefa_atual.situacao = 'Em andamento'
-            if tarefa_atual.situacao == 'Em andamento':
-                tarefa_atual.prioridade = 3
-                tarefas[index] = tarefa_atual
+@app.put('/tarefas/atualizar/emandamento/{tarefa_id}')
+def atualizar_tarefa(tarefa_id: str):
+    tarefa_atual = collection.find_one({"_id": ObjectId(tarefa_id)})
+    if tarefa_atual:
+        if tarefa_atual["situacao"] == 'Nova' or tarefa_atual["situacao"] == 'Pendente':
+            result = collection.update_one(
+                {"_id": ObjectId(tarefa_id)},
+                {"$set": {"situacao": "Em andamento",
+                          "prioridade": 3}}
+            )
+            if result.modified_count == 1:
+                # Convertendo o ObjectId para string antes de chamar o jsonable_encoder
+                tarefa_atual["_id"] = str(tarefa_atual["_id"])
+                tarefa_atual = jsonable_encoder(tarefa_atual)
                 return tarefa_atual
-            else:
-                raise HTTPException(status.HTTP_406_NOT_ACCEPTABLE,
-                                    detail=f"Para atualizarmos a situação da tarefa {tarefa_id} sua situação deve ser 'Nova' ou 'Pendente' ")
-
-    raise HTTPException(status.HTTP_404_NOT_FOUND,
-                        detail=f'Tarefa de ID {tarefa_id} não encontrada')
+            raise HTTPException(status.HTTP_200_OK,
+                                detail=f"Tarefa {tarefa_id} atualizada com sucesso")
+        else:
+            raise HTTPException(status.HTTP_406_NOT_ACCEPTABLE,
+                                detail=f"Para atualizarmos a situação da tarefa {tarefa_id} sua situação deve ser 'Nova' ou 'Pendente' ")
+    else:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            detail=f'Tarefa de ID {tarefa_id} não encontrada')
 
 
 # Atualizar a tarefa - estado = Pendente
-@app.put('/tarefas/atualizar/situacao/pendente/{tarefa_id}')
-def atualizar_tarefa(tarefa_id: int):
-    for index in range(len(tarefas)):
-        tarefa_atual = tarefas[index]
-        if tarefa_atual.id == tarefa_id:
-            tarefa_id = tarefa_atual.id
-            if tarefa_atual.situacao == 'Nova' or 'Em andamento':
-                tarefa_atual.situacao = 'Pendente'
-            if tarefa_atual.situacao == 'Pendente':
-                tarefa_atual.prioridade = 2
-                tarefas[index] = tarefa_atual
+@app.put('/tarefas/atualizar/pendente/{tarefa_id}')
+def atualizar_tarefa_pendente(tarefa_id: str):
+    tarefa_atual = collection.find_one({"_id": ObjectId(tarefa_id)})
+    if tarefa_atual:
+        if tarefa_atual["situacao"] == 'Nova' or tarefa_atual["situacao"] == 'Em andamento':
+            result = collection.update_one(
+                {"_id": ObjectId(tarefa_id)},
+                {"$set": {"situacao": "Pendente",
+                          "prioridade": 2}}
+            )
+            if result.modified_count == 1:
+                # Convertendo o ObjectId para string antes de chamar o jsonable_encoder
+                tarefa_atual["_id"] = str(tarefa_atual["_id"])
+                tarefa_atual = jsonable_encoder(tarefa_atual)
                 return tarefa_atual
-            else:
-                raise HTTPException(status.HTTP_406_NOT_ACCEPTABLE,
-                                    detail=f"Para atualizarmos a situação da tarefa {tarefa_id} sua situação deve ser 'Nova' ou 'Em andamento' ")
-    raise HTTPException(status.HTTP_404_NOT_FOUND,
-                        detail=f'Tarefa de ID {tarefa_id} não encontrada')
+            raise HTTPException(status.HTTP_200_OK,
+                                detail=f"Tarefa {tarefa_id} atualizada com sucesso")
+        else:
+            raise HTTPException(status.HTTP_406_NOT_ACCEPTABLE,
+                                detail=f"Para atualizarmos a situação da tarefa {tarefa_id} sua situação deve ser 'Nova' ou 'Em andamento' ")
+    else:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            detail=f'Tarefa de ID {tarefa_id} não encontrada')
 
 
 # Atualizar a tarefa - estado = Resolvida
-@app.put('/tarefas/atualizar/situacao/resolvida/{tarefa_id}')
-def atualizar_tarefa(tarefa_id: int):
-    for index in range(len(tarefas)):
-        tarefa_atual = tarefas[index]
-        if tarefa_atual.id == tarefa_id:
-            tarefa_id = tarefa_atual.id
-            if tarefa_atual.situacao == 'Em andamento':
-                tarefa_atual.situacao = 'Resolvida'
-                tarefas[index] = tarefa_atual
-
+@app.put('/tarefas/atualizar/resolvida/{tarefa_id}')
+def atualizar_tarefa_resolvida(tarefa_id: str):
+    tarefa_atual = collection.find_one({"_id": ObjectId(tarefa_id)})
+    if tarefa_atual:
+        if tarefa_atual["situacao"] == 'Em andamento':
+            result = collection.update_one(
+                {"_id": ObjectId(tarefa_id)},
+                {"$set": {"situacao": "Resolvida",
+                          "prioridade": 1}}
+            )
+            if result.modified_count == 1:
+                # Convertendo o ObjectId para string antes de chamar o jsonable_encoder
+                tarefa_atual["_id"] = str(tarefa_atual["_id"])
+                tarefa_atual = jsonable_encoder(tarefa_atual)
                 return tarefa_atual
-            else:
-                raise HTTPException(status.HTTP_406_NOT_ACCEPTABLE,
-                                    detail=f"Para atualizarmos a situação da tarefa {tarefa_id} sua situação deve ser 'Em andamento' ")
-
-    raise HTTPException(status.HTTP_404_NOT_FOUND,
-                        detail=f'Tarefa de ID {tarefa_id} não encontrada')
-
-# Cancelar tarefa
+            raise HTTPException(status.HTTP_200_OK,
+                                detail=f"Tarefa {tarefa_id} atualizada com sucesso")
+        else:
+            raise HTTPException(status.HTTP_406_NOT_ACCEPTABLE,
+                                detail=f"Para atualizarmos a situação da tarefa {tarefa_id} sua situação deve ser 'Em andamento' ")
+    else:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            detail=f'Tarefa de ID {tarefa_id} não encontrada')
 
 
 @app.put('/tarefas/cancelar/{tarefa_id}')
-def atualizar_tarefa(tarefa_id: int):
-    for index in range(len(tarefas)):
-        tarefa_atual = tarefas[index]
-        if tarefa_atual.id == tarefa_id:
-            tarefa_id = tarefa_atual.id
-            if tarefa_atual.situacao == 'Nova' or 'Pendente' or 'Em andamento':
-                tarefa_atual.situacao = 'Cancelada'
-                tarefas[index] = tarefa_atual
+def atualizar_tarefa_resolvida(tarefa_id: str):
+    tarefa_atual = collection.find_one({"_id": ObjectId(tarefa_id)})
+    if tarefa_atual:
+        if tarefa_atual["situacao"] == 'Nova' or 'Pendente' or 'Em andamento':
+            result = collection.update_one(
+                {"_id": ObjectId(tarefa_id)},
+                {"$set": {"situacao": "Cancelada",
+                          "prioridade": 1}}
+            )
+            if result.modified_count == 1:
+                # Convertendo o ObjectId para string antes de chamar o jsonable_encoder
+                tarefa_atual["_id"] = str(tarefa_atual["_id"])
+                tarefa_atual = jsonable_encoder(tarefa_atual)
                 return tarefa_atual
-            else:
-                return 'Não foi possível cancelar a sua tarefa'
+            raise HTTPException(status.HTTP_200_OK,
+                                detail=f"Tarefa {tarefa_id} cancelada com sucesso")
 
-    raise HTTPException(status.HTTP_404_NOT_FOUND,
-                        detail=f'Tarefa de ID {tarefa_id} não encontrada')
-
-
-# Listar tarefas por situação
-@app.get('/tarefas/situacao/{tarefa_situacao}')
-def listar_situacao(tarefa_situacao: str):
-    return [pesquisa for pesquisa in tarefas if pesquisa.situacao == tarefa_situacao]
-
-# Listar tarefas por prioridade
-
-
-@app.get('/tarefas/prioridade/{tarefa_prioridade}')
-def listar_situacao(tarefa_prioridade: int):
-    return [pesquisa for pesquisa in tarefas if pesquisa.prioridade == tarefa_prioridade]
-
-# Listar tarefas por nível
-
-
-@app.get('/tarefas/nivel/{tarefa_nivel}')
-def listar_situacao(tarefa_nivel: int):
-    return [pesquisa for pesquisa in tarefas if pesquisa.nivel == tarefa_nivel]
+        else:
+            raise HTTPException(status.HTTP_406_NOT_ACCEPTABLE,
+                                detail=f"Para atualizarmos a situação da tarefa {tarefa_id} sua situação deve ser 'Em andamento' ")
+    else:
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            detail=f'Tarefa de ID {tarefa_id} não encontrada')
