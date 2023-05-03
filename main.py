@@ -12,7 +12,7 @@ client = MongoClient("mongodb+srv://vreabin:ZNbqixYWpkcnMIvK@cluster0.ysransw.mo
 db = client["tarefasbd"]
 collection = db["tarefas"]
 
-origins = ["http://localhost:5500", "http://127.0.0.1:5500"]
+origins = ["http://localhost:5500", "http://127.0.0.1:5500", "http://127.0.0.1:5501"]
 
 app.add_middleware(
     CORSMiddleware,
