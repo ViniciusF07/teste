@@ -36,7 +36,7 @@ class Tarefa(BaseModel):
 # Criar uma tarefa
 
 
-@app.post("/criar", status_code=status.HTTP_201_CREATED)
+@app.post("/criartarefas", status_code=status.HTTP_201_CREATED)
 def adicionar_tarefa(tarefa: Tarefa):
     tarefa_dict = tarefa.dict()
     inserted_tarefa = collection.insert_one(tarefa_dict)
