@@ -4,14 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pymongo.mongo_client import MongoClient
 from bson import ObjectId
-from dotenv import load_dotenv
-import os
+
 
 app = FastAPI()
-load_dotenv()
-uri = os.getenv("uri")
 # Configuração da conexão com o MongoDB
-client = MongoClient(uri)
+client = MongoClient("mongodb+srv://vreabin:ZNbqixYWpkcnMIvK@cluster0.ysransw.mongodb.net/?retryWrites=true&w=majority")
 db = client["tarefasbd"]
 collection = db["tarefas"]
 
