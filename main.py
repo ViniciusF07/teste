@@ -12,7 +12,7 @@ client = MongoClient("mongodb+srv://vreabin:ZNbqixYWpkcnMIvK@cluster0.ysransw.mo
 db = client["tarefasbd"]
 collection = db["tarefas"]
 
-origins = ["http://localhost:5500", "http://127.0.0.1:5500", "http://127.0.0.1:5501"]
+origins = ["http://localhost:5500", "http://127.0.0.1:5500", "http://127.0.0.1:5501", "https://front-git-main-viniciusf07.vercel.app/"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,7 +36,7 @@ class Tarefa(BaseModel):
 # Criar uma tarefa
 
 
-@app.post("/criartarefas", status_code=status.HTTP_201_CREATED)
+@app.post("/tarefas", status_code=status.HTTP_201_CREATED)
 def adicionar_tarefa(tarefa: Tarefa):
     tarefa_dict = tarefa.dict()
     inserted_tarefa = collection.insert_one(tarefa_dict)
